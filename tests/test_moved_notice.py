@@ -26,6 +26,11 @@ TREE = {".gitignore", "LICENSE", "README.md", "install.ps1", "uninstall.ps1", "t
 # What an installer does; none of it may stand in the stub outside the printed line.
 FORBIDDEN = [r"\bpip\b", r"\bwinget\b", r"Start-Process", r"New-Object\s+-ComObject", r"Set-ItemProperty",
              r"\birm\b", r"Invoke-WebRequest", r"Invoke-RestMethod", r"\$env:"]
+# The only code lines the stub may hold: its block, one function, Write-Host of a literal or a variable,
+# return, the exit tail, the LASTEXITCODE assignment, and assignments of a string literal or of the
+# function's result (added in the test from the function names the file defines).
+ALLOWED = [r"& \{", r"\}", r"function [\w-]+ \{", r"Write-Host ('[^']*'|\$\w+)", r"return \d+",
+           r"\$\w+ = '[^']*'", r"if \(\$PSCommandPath\) \{ exit \$\w+ \}", r"\$global:LASTEXITCODE = \$\w+"]
 SPANISH = "Esta linea ya no instala nada"
 ENGLISH = "This line installs nothing any more"
 
@@ -76,6 +81,18 @@ class MovedNoticeTest(unittest.TestCase):
         for pattern in FORBIDDEN:
             with self.subTest(pattern=pattern):
                 self.assertIsNone(re.search(pattern, rest, re.IGNORECASE), pattern)
+        # Allow-list: outside comments and the one quoted PendiFy line, every code line is one of ALLOWED,
+        # so any other command or cmdlet (Set-Content, New-Item, Remove-Item, reg add, ...) is red.
+        quoted = "'" + NEW_LINE + "'"
+        self.assertEqual(source.count(quoted), 1, "the PendiFy line is quoted once")
+        functions = re.findall(r"(?m)^\s*function\s+([\w-]+)\s*\{\s*$", source)
+        allowed = ALLOWED + [r"\$\w+ = " + re.escape(name) for name in functions]
+        for number, line in enumerate(source.replace(quoted, "''").splitlines(), 1):
+            code = line.strip()
+            if not code or code.startswith("#"):
+                continue
+            with self.subTest(line=number):
+                self.assertTrue(any(re.fullmatch(p, code) for p in allowed), "not allowed: " + code)
 
     def test_readme_points_to_pendify_once_per_language_with_the_old_uninstall_line(self):
         text = README.read_text(encoding="utf-8")
